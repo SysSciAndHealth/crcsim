@@ -4,8 +4,8 @@ library(tidyr)
 library(xlsx)
 
 args = commandArgs(trailingOnly=TRUE)
-if (length(args) != 2) {
-  stop("Two arguments must be supplied (input directory and output file).n", call.=FALSE)
+if (length(args) != 3) {
+  stop("Three arguments must be supplied (input directory, experiment file directory and output file)", call.=FALSE)
 } 
 
 startReadTime <- Sys.time()
@@ -16,6 +16,7 @@ datalist = list()
 rowCount = 1
 
 filename <- args[1]
+experimentDir <- args[2]
 setwd(args[1])
 
 print(args[2])
@@ -39,6 +40,31 @@ for (i in 1:length(directoryNames)) {
     # The intervention number is the 6th field of the file name
     intervention = as.numeric(strsplit(directoryNames[i], "[.]")[[1]][6])
   }
+  # Now for a classic time vs space vs ease of code tradeoff.  We want to read
+  # the experiment file that is associated with this directory so that we can
+  # add the intervention type, cost multiplier and effectiveness_increment to the tsv files.  We 
+  # can read the experiments files into an array or just reread them every time. Simpler to reread them
+  # so that is what we will do. The intervention number read above is the 4 character representation of the
+  # intervention
+  if (intervention > -1){
+    experimentFileName = paste(experimentDir, "/intervention.", strsplit(directoryNames[i], "[.]")[[1]][6],  sep="")
+    experimentFile = file(experimentFileName)
+    experimentFileContents = readLines(experimentFile)
+    close(experimentFile)
+    interventionType = strsplit(experimentFileContents[1], "[=]")[[1]][1]
+  
+    # The param string looks like params_QALY_string=1,0,0,0,0
+    # so we split once by = and once by ,
+    paramString = strsplit(experimentFileContents[2], "[=]")[[1]][2]
+    costMultiplier = strsplit(paramString, "[,]")[[1]][1]
+    effectivenessIncrement = strsplit(paramString, "[,]")[[1]][2]
+  } else {
+    interventionType = "control"
+    costMultiplier = "0"
+    effectivenessIncrement = "0"
+  }
+  
+  cat(sprintf("generated %s %s %s\n", interventionType, costMultiplier, effectivenessIncrement))
   
   # The age cohort is the third field of the file name
   age = as.numeric(strsplit(directoryNames[i], "[.]")[[1]][3])
@@ -55,12 +81,14 @@ for (i in 1:length(directoryNames)) {
     
     # We only need to put the header once
     if (rowCount == 1){
-      headerLine = paste("Replication","age","Intervention",filedata[1], sep="\t")
+      headerLine = paste("Intervention Type", "Cost Multiplier", "Effectiveness Increment", 
+                         "Replication","Age","Intervention Number",filedata[1], sep="\t")
       datalist[[rowCount]] = headerLine
       rowCount = rowCount + 1
     }
     # make a record with the replication, age and intervention number prepended to the data
-    force = c(replication,"\t",age,"\t",intervention,"\t",filedata[2])
+    force = c(interventionType, "\t", costMultiplier, "\t", effectivenessIncrement, "\t", 
+              replication,"\t",age,"\t",intervention,"\t",filedata[2])
     thisRecord = paste(force, collapse="")
     
     # add the record to the datalist
@@ -71,6 +99,8 @@ for (i in 1:length(directoryNames)) {
 }
 
 fullPop = do.call(rbind, datalist)
-fwrite(fullPop, args[2], col.names=F,row.names=F,append=F)
+fwrite(fullPop, args[3], col.names=F,row.names=F,append=F)
 endReadTime <- Sys.time()
 print(endReadTime - startReadTime)
+print(summary(warnings()))
+print(warnings())
